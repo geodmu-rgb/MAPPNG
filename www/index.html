@@ -1,0 +1,571 @@
+<!-- ХЭЭР — Геологийн хээрийн тэмдэглэлийн апп / Geological field-notes app
+     Single-file, offline-capable. Core logging + GPS + export work without internet.
+     Map tiles and web fonts require internet (graceful fallback otherwise). -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ХЭЭР — Геологийн хээрийн тэмдэглэл</title>
+<meta name="theme-color" content="#13110d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#13110d;
+    --panel:#1d1a14;
+    --panel-2:#262219;
+    --line:#3a342763;
+    --line-solid:#3a3427;
+    --text:#ece6d8;
+    --muted:#9a9080;
+    --copper:#c87a30;
+    --copper-bright:#e89a4a;
+    --gold:#d9b25a;
+    --green:#7fae5a;
+    --red:#cf5b4a;
+    --sans:'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono:'IBM Plex Mono', ui-monospace, 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 500px at 80% -10%, #2a2418 0%, transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.45;
+    padding-bottom:84px;
+    min-height:100vh;
+  }
+  header{
+    position:sticky;top:0;z-index:500;
+    background:linear-gradient(180deg, #1d1a14 0%, #1a1711 100%);
+    border-bottom:1px solid var(--line-solid);
+    padding:12px 16px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .brand{display:flex;flex-direction:column;line-height:1.1}
+  .brand .t1{font-weight:700;font-size:17px;letter-spacing:.04em}
+  .brand .t1 b{color:var(--copper-bright)}
+  .brand .t2{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+  .logo{
+    width:38px;height:38px;flex:0 0 38px;border-radius:8px;
+    background:linear-gradient(135deg,var(--copper),#7a4418);
+    display:grid;place-items:center;font-size:20px;
+    box-shadow:0 2px 10px #00000066, inset 0 1px 0 #ffffff22;
+  }
+  .gps-pill{
+    margin-left:auto;font-family:var(--mono);font-size:11px;
+    padding:5px 9px;border-radius:20px;border:1px solid var(--line-solid);
+    color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;
+  }
+  .gps-dot{width:8px;height:8px;border-radius:50%;background:#6b6354}
+  .gps-pill.ok .gps-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .gps-pill.ok{color:var(--green);border-color:#3c5a2a}
+  .gps-pill.wait .gps-dot{background:var(--gold);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  main{max-width:680px;margin:0 auto;padding:16px}
+  .view{display:none;animation:fade .25s ease}
+  .view.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .gpsbtn{
+    width:100%;border:none;border-radius:12px;cursor:pointer;
+    background:linear-gradient(180deg,var(--copper-bright),var(--copper));
+    color:#1a1206;font-weight:700;font-size:16px;letter-spacing:.02em;
+    padding:16px;margin-bottom:14px;
+    box-shadow:0 4px 16px #c87a3033, inset 0 1px 0 #ffffff44;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+  }
+  .gpsbtn:active{transform:translateY(1px)}
+  .coordbox{
+    background:var(--panel);border:1px solid var(--line-solid);border-radius:12px;
+    padding:14px;margin-bottom:16px;font-family:var(--mono);
+  }
+  .coordrow{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
+  .coordrow .k{color:var(--muted);font-family:var(--sans);font-size:13px}
+  .coordrow .v{color:var(--gold)}
+  .coordrow .v.acc{color:var(--muted)}
+
+  .card{background:var(--panel);border:1px solid var(--line-solid);border-radius:14px;padding:16px;margin-bottom:14px}
+  .sectlabel{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--copper);margin:0 0 12px;font-weight:600}
+
+  label.field{display:block;margin-bottom:13px}
+  label.field > span{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px;letter-spacing:.02em}
+  input,select,textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--line-solid);
+    color:var(--text);border-radius:9px;padding:11px 12px;font-size:15px;font-family:var(--sans);
+  }
+  input:focus,select,textarea:focus{outline:none;border-color:var(--copper)}
+  input[readonly]{color:var(--gold);font-family:var(--mono);font-size:13px}
+  textarea{resize:vertical;min-height:64px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  .photo-wrap{display:flex;align-items:center;gap:12px}
+  .photo-thumb{width:64px;height:64px;border-radius:9px;object-fit:cover;border:1px solid var(--line-solid);display:none}
+  .photo-thumb.show{display:block}
+  .filebtn{flex:1;text-align:center;background:var(--panel-2);border:1px dashed var(--line-solid);border-radius:9px;padding:11px;color:var(--muted);font-size:14px;cursor:pointer}
+
+  .savebtn{width:100%;border:none;border-radius:12px;background:var(--green);color:#0e1408;font-weight:700;font-size:16px;padding:15px;cursor:pointer;box-shadow:0 4px 14px #7fae5a22}
+  .savebtn:active{transform:translateY(1px)}
+
+  .toast{
+    position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(20px);
+    background:var(--green);color:#0e1408;font-weight:600;padding:11px 20px;border-radius:30px;
+    opacity:0;pointer-events:none;transition:.3s;z-index:900;font-size:14px;box-shadow:0 6px 20px #00000055;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .rec{background:var(--panel);border:1px solid var(--line-solid);border-radius:12px;margin-bottom:11px;overflow:hidden}
+  .rec-head{padding:13px 15px;display:flex;align-items:center;gap:12px;cursor:pointer}
+  .rec-id{font-family:var(--mono);font-weight:600;color:var(--copper-bright);font-size:15px}
+  .rec-meta{flex:1;min-width:0}
+  .rec-meta .lith{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rec-meta .sub{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:2px}
+  .rec-chev{color:var(--muted);transition:.2s}
+  .rec.open .rec-chev{transform:rotate(90deg)}
+  .rec-body{display:none;padding:0 15px 15px;border-top:1px solid var(--line)}
+  .rec.open .rec-body{display:block}
+  .rec-body img{max-width:100%;border-radius:8px;margin-top:8px}
+  .detail{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;border-bottom:1px solid var(--line)}
+  .detail:last-child{border:none}
+  .detail .dk{color:var(--muted)}
+  .detail .dv{text-align:right;max-width:62%;font-family:var(--mono);font-size:12.5px;color:var(--gold);word-break:break-word}
+  .rec-actions{display:flex;gap:8px;margin-top:12px}
+  .mini{flex:1;border:1px solid var(--line-solid);background:var(--panel-2);color:var(--text);border-radius:8px;padding:9px;font-size:13px;cursor:pointer}
+  .mini.del{color:var(--red);border-color:#5a2c26}
+
+  .empty{text-align:center;color:var(--muted);padding:48px 16px;font-size:14px}
+  .empty .big{font-size:34px;margin-bottom:10px;opacity:.5}
+
+  #map{height:62vh;min-height:340px;border-radius:14px;border:1px solid var(--line-solid);overflow:hidden}
+  .leaflet-popup-content{font-family:var(--sans);font-size:13px}
+  .map-note{font-size:12px;color:var(--muted);margin-top:8px;text-align:center}
+  .map-recenter{width:100%;margin-top:10px;border:1px solid var(--line-solid);background:var(--panel-2);color:var(--text);border-radius:10px;padding:12px;font-size:14px;cursor:pointer}
+
+  .exp-btn{width:100%;border:1px solid var(--line-solid);background:var(--panel);color:var(--text);border-radius:12px;padding:15px;margin-bottom:11px;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+  .exp-btn .fmt{font-family:var(--mono);font-size:12px;color:var(--copper);border:1px solid var(--line-solid);padding:3px 8px;border-radius:6px}
+  .exp-btn:active{border-color:var(--copper)}
+  .danger{color:var(--red);border-color:#5a2c2680}
+  .info-note{font-size:12.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:14px;line-height:1.6}
+
+  nav.tabs{
+    position:fixed;bottom:0;left:0;right:0;z-index:600;
+    background:linear-gradient(0deg,#16130d,#1a1711f0);
+    border-top:1px solid var(--line-solid);
+    display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+    backdrop-filter:blur(8px);
+  }
+  .tab{flex:1;border:none;background:none;color:var(--muted);padding:8px 4px;font-size:11px;font-family:var(--sans);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
+  .tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7}
+  .tab.active{color:var(--copper-bright)}
+  .tab .badge{font-family:var(--mono);font-size:10px}
+</style>
+
+<header>
+  <div class="logo">⛏</div>
+  <div class="brand">
+    <div class="t1">ХЭЭР<b>·</b>ГЕО</div>
+    <div class="t2">Хайгуулын хээрийн тэмдэглэл</div>
+  </div>
+  <div class="gps-pill" id="gpsPill"><span class="gps-dot"></span><span id="gpsTxt">GPS идэвхгүй</span></div>
+</header>
+
+<main>
+  <!-- ============ БИЧИХ ============ -->
+  <section class="view active" id="view-new">
+    <button class="gpsbtn" id="btnGps">📍 GPS байршил авах</button>
+    <div class="coordbox">
+      <div class="coordrow"><span class="k">Өргөрөг (Lat)</span><span class="v" id="cLat">—</span></div>
+      <div class="coordrow"><span class="k">Уртраг (Lon)</span><span class="v" id="cLon">—</span></div>
+      <div class="coordrow"><span class="k">UTM (WGS84)</span><span class="v" id="cUtm">—</span></div>
+      <div class="coordrow"><span class="k">Нарийвчлал</span><span class="v acc" id="cAcc">—</span></div>
+    </div>
+
+    <div class="card">
+      <p class="sectlabel">Станцын мэдээлэл</p>
+      <div class="row2">
+        <label class="field"><span>Станц / Цэгийн №</span><input id="fStation" type="text"></label>
+        <label class="field"><span>Дээжийн №</span><input id="fSample" type="text" placeholder="ж: CH-001"></label>
+      </div>
+      <label class="field"><span>Огноо / Цаг</span><input id="fTime" type="text" readonly></label>
+      <div class="row2">
+        <label class="field"><span>Өргөрөг</span><input id="fLat" type="number" step="any" inputmode="decimal"></label>
+        <label class="field"><span>Уртраг</span><input id="fLon" type="number" step="any" inputmode="decimal"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="sectlabel">Геологийн тэмдэглэл</p>
+      <label class="field"><span>Дээжийн төрөл</span>
+        <select id="fType">
+          <option value="">— сонгох —</option>
+          <option>Цуглуулга (Grab)</option>
+          <option>Сувгийн (Channel)</option>
+          <option>Цэгэн (Chip)</option>
+          <option>Хөрс</option>
+          <option>Ёроолын тунадас</option>
+          <option>Цул чулуулаг (Float)</option>
+          <option>Бусад</option>
+        </select>
+      </label>
+      <label class="field"><span>Литологи (чулуулаг)</span><input id="fLith" type="text" placeholder="ж: биотитлэг гранодиорит"></label>
+      <label class="field"><span>Өөрчлөлт (alteration)</span><input id="fAlt" type="text" placeholder="ж: серицит-кварц, лимонит"></label>
+      <label class="field"><span>Эрдэсжилт (mineralization)</span><input id="fMin" type="text" placeholder="ж: малахит, борнит, дисеминаци"></label>
+      <div class="row3">
+        <label class="field"><span>Суналт (strike)°</span><input id="fStrike" type="number" inputmode="numeric" placeholder="0–360"></label>
+        <label class="field"><span>Хэвгий (dip)°</span><input id="fDip" type="number" inputmode="numeric" placeholder="0–90"></label>
+      </div>
+      <label class="field"><span>Чөлөөт тэмдэглэл</span><textarea id="fNote" placeholder="Ажиглалт, гадаргын онцлог, замчлагч элемент..."></textarea></label>
+      <label class="field"><span>Зураг</span>
+        <div class="photo-wrap">
+          <img class="photo-thumb" id="fThumb">
+          <label class="filebtn" id="fileLbl">📷 Зураг хавсаргах
+            <input id="fPhoto" type="file" accept="image/*" capture="environment" style="display:none">
+          </label>
+        </div>
+      </label>
+    </div>
+
+    <button class="savebtn" id="btnSave">✓ Тэмдэглэл хадгалах</button>
+  </section>
+
+  <!-- ============ ЖАГСААЛТ ============ -->
+  <section class="view" id="view-list"></section>
+
+  <!-- ============ ГАЗРЫН ЗУРАГ ============ -->
+  <section class="view" id="view-map">
+    <div id="map"></div>
+    <button class="map-recenter" id="btnRecenter">🎯 Миний байршил руу</button>
+    <p class="map-note">Газрын зургийн хавтанг харахад интернэт шаардлагатай. GPS, бичлэг, экспорт нь офлайн ажиллана.</p>
+  </section>
+
+  <!-- ============ ЭКСПОРТ ============ -->
+  <section class="view" id="view-export">
+    <div class="card">
+      <p class="sectlabel">Өгөгдөл татах</p>
+      <button class="exp-btn" data-exp="csv">Хүснэгт (бүх талбар) <span class="fmt">.CSV</span></button>
+      <button class="exp-btn" data-exp="gpx">Навигацийн цэгүүд <span class="fmt">.GPX</span></button>
+      <button class="exp-btn" data-exp="kml">Google Earth / QGIS <span class="fmt">.KML</span></button>
+    </div>
+    <div class="card">
+      <p class="sectlabel">Удирдлага</p>
+      <button class="exp-btn danger" id="btnClear">⚠ Бүх тэмдэглэл устгах</button>
+    </div>
+    <p class="info-note">
+      <b>Энэ аппыг ажил дээрээ хэрэглэхийн тулд:</b> файлыг утсандаа татаж аваад (Files / Downloads), хөтчөөр нээгээрэй. Тэгвэл бичсэн тэмдэглэл утсанд тань хадгалагдаж, дараа дахин нээхэд хэвээр байх болно. AlpineQuest, QGIS, ArcGIS-д ачаалахдаа GPX/KML экспортыг ашиглаарай.
+    </p>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="new">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Бичих</button>
+  <button class="tab" data-tab="list">
+    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    Жагсаалт <span class="badge" id="tabCount"></span></button>
+  <button class="tab" data-tab="map">
+    <svg viewBox="0 0 24 24"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"/></svg>Зураг</button>
+  <button class="tab" data-tab="export">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 21h14"/></svg>Экспорт</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="native-bridge.js"></script>
+<script>
+(function(){
+  "use strict";
+  var STORE_KEY = "geo_field_records_v1";
+  var records = [];
+  var current = {lat:null, lon:null, acc:null};
+  var photoData = null;
+  var map=null, layerGroup=null, meMarker=null, mapInited=false;
+
+  // ---------- Хадгалалт (localStorage, гэхдээ preview-д унахгүй) ----------
+  function load(){
+    try{ var raw = localStorage.getItem(STORE_KEY); if(raw) records = JSON.parse(raw)||[]; }
+    catch(e){ records = []; }
+  }
+  function save(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(records)); }catch(e){ /* preview эсвэл квот */ }
+  }
+
+  // ---------- UTM хөрвүүлэлт (WGS84) ----------
+  function toUTM(lat, lon){
+    var a=6378137.0, f=1/298.257223563, e2=f*(2-f), ep2=e2/(1-e2), k0=0.9996;
+    var zone=Math.floor((lon+180)/6)+1;
+    var lon0=((zone-1)*6-180+3)*Math.PI/180;
+    var p=lat*Math.PI/180, l=lon*Math.PI/180;
+    var N=a/Math.sqrt(1-e2*Math.pow(Math.sin(p),2));
+    var T=Math.pow(Math.tan(p),2);
+    var C=ep2*Math.pow(Math.cos(p),2);
+    var A=Math.cos(p)*(l-lon0);
+    var M=a*((1-e2/4-3*e2*e2/64-5*e2*e2*e2/256)*p
+        -(3*e2/8+3*e2*e2/32+45*e2*e2*e2/1024)*Math.sin(2*p)
+        +(15*e2*e2/256+45*e2*e2*e2/1024)*Math.sin(4*p)
+        -(35*e2*e2*e2/3072)*Math.sin(6*p));
+    var E=k0*N*(A+(1-T+C)*Math.pow(A,3)/6+(5-18*T+T*T+72*C-58*ep2)*Math.pow(A,5)/120)+500000;
+    var Nn=k0*(M+N*Math.tan(p)*(A*A/2+(5-T+9*C+4*C*C)*Math.pow(A,4)/24+(61-58*T+T*T+600*C-330*ep2)*Math.pow(A,6)/720));
+    if(lat<0) Nn+=10000000;
+    return {zone:zone, hemi:(lat>=0?'N':'S'), e:Math.round(E), n:Math.round(Nn)};
+  }
+  function utmStr(lat,lon){
+    if(lat==null||lon==null) return "—";
+    var u=toUTM(lat,lon);
+    return u.zone+u.hemi+" "+u.e+"E "+u.n+"N";
+  }
+
+  // ---------- GPS ----------
+  function setPill(state, txt){
+    var p=document.getElementById('gpsPill');
+    p.className='gps-pill'+(state?(' '+state):'');
+    document.getElementById('gpsTxt').textContent=txt;
+  }
+  function getGps(){
+    if(!navigator.geolocation){ toast('Энэ төхөөрөмж GPS дэмжихгүй'); return; }
+    setPill('wait','Хайж байна...');
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var c=pos.coords;
+      current.lat=c.latitude; current.lon=c.longitude; current.acc=c.accuracy;
+      document.getElementById('cLat').textContent=c.latitude.toFixed(6);
+      document.getElementById('cLon').textContent=c.longitude.toFixed(6);
+      document.getElementById('cUtm').textContent=utmStr(c.latitude,c.longitude);
+      document.getElementById('cAcc').textContent='±'+Math.round(c.accuracy)+' м';
+      document.getElementById('fLat').value=c.latitude.toFixed(6);
+      document.getElementById('fLon').value=c.longitude.toFixed(6);
+      setPill('ok','±'+Math.round(c.accuracy)+'м');
+      if(meMarker && map){ meMarker.setLatLng([c.latitude,c.longitude]); }
+    }, function(err){
+      setPill('','GPS алдаа');
+      toast('Байршил аваагүй: '+err.message);
+    }, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+  }
+
+  // ---------- Зураг (canvas-аар жижигрүүлж хадгална) ----------
+  document.getElementById('fPhoto').addEventListener('change', function(e){
+    var file=e.target.files[0]; if(!file) return;
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var img=new Image();
+      img.onload=function(){
+        var max=900, w=img.width, h=img.height;
+        if(w>h && w>max){ h=h*max/w; w=max; } else if(h>max){ w=w*max/h; h=max; }
+        var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+        cv.getContext('2d').drawImage(img,0,0,w,h);
+        photoData=cv.toDataURL('image/jpeg',0.6);
+        var t=document.getElementById('fThumb'); t.src=photoData; t.classList.add('show');
+        document.getElementById('fileLbl').firstChild.textContent='✓ Зураг хавсаргасан ';
+      };
+      img.src=ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // ---------- Хадгалах ----------
+  function nextStation(){
+    var max=0;
+    records.forEach(function(r){
+      var m=/(\d+)\s*$/.exec(r.station||''); if(m){ var n=parseInt(m[1],10); if(n>max) max=n; }
+    });
+    return 'ST-'+String(max+1).padStart(3,'0');
+  }
+  function resetForm(){
+    photoData=null;
+    ['fSample','fLith','fAlt','fMin','fStrike','fDip','fNote'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('fType').value='';
+    var t=document.getElementById('fThumb'); t.classList.remove('show'); t.src='';
+    document.getElementById('fileLbl').firstChild.textContent='📷 Зураг хавсаргах ';
+    document.getElementById('fStation').value=nextStation();
+    stampTime();
+  }
+  function stampTime(){
+    var d=new Date();
+    var p=function(n){return String(n).padStart(2,'0');};
+    document.getElementById('fTime').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  document.getElementById('btnSave').addEventListener('click', function(){
+    var lat=parseFloat(document.getElementById('fLat').value);
+    var lon=parseFloat(document.getElementById('fLon').value);
+    if(isNaN(lat)||isNaN(lon)){ toast('Эхлээд GPS байршил авна уу'); switchTab('new'); return; }
+    var rec={
+      id:'r'+Date.now(),
+      station:document.getElementById('fStation').value||nextStation(),
+      sample:document.getElementById('fSample').value,
+      time:document.getElementById('fTime').value,
+      lat:lat, lon:lon, acc:current.acc,
+      type:document.getElementById('fType').value,
+      lith:document.getElementById('fLith').value,
+      alt:document.getElementById('fAlt').value,
+      min:document.getElementById('fMin').value,
+      strike:document.getElementById('fStrike').value,
+      dip:document.getElementById('fDip').value,
+      note:document.getElementById('fNote').value,
+      photo:photoData
+    };
+    records.unshift(rec);
+    save();
+    resetForm();
+    renderList(); updateCount();
+    toast('✓ '+rec.station+' хадгалагдлаа');
+  });
+
+  // ---------- Жагсаалт ----------
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function renderList(){
+    var v=document.getElementById('view-list');
+    if(!records.length){ v.innerHTML='<div class="empty"><div class="big">⛏</div>Одоогоор тэмдэглэл алга.<br>«Бичих» хэсгээс эхлээрэй.</div>'; return; }
+    var html='';
+    records.forEach(function(r){
+      var sub=utmStr(r.lat,r.lon)+'  ·  '+esc(r.time||'');
+      var detail='';
+      var add=function(k,val){ if(val!==''&&val!=null) detail+='<div class="detail"><span class="dk">'+k+'</span><span class="dv">'+esc(val)+'</span></div>'; };
+      add('Дээж',r.sample); add('Координат',r.lat.toFixed(6)+', '+r.lon.toFixed(6)); add('UTM',utmStr(r.lat,r.lon));
+      add('Төрөл',r.type); add('Литологи',r.lith); add('Өөрчлөлт',r.alt); add('Эрдэсжилт',r.min);
+      if(r.strike!==''||r.dip!=='') add('Структур',(r.strike||'?')+'° / '+(r.dip||'?')+'°');
+      add('Тэмдэглэл',r.note);
+      var photo = r.photo?'<img src="'+r.photo+'">':'';
+      html+='<div class="rec" data-id="'+r.id+'">'+
+        '<div class="rec-head js-toggle">'+
+          '<div class="rec-id">'+esc(r.station)+'</div>'+
+          '<div class="rec-meta"><div class="lith">'+esc(r.lith||r.type||'(тэмдэглэлгүй)')+'</div><div class="sub">'+sub+'</div></div>'+
+          '<div class="rec-chev">▸</div>'+
+        '</div>'+
+        '<div class="rec-body">'+detail+photo+
+          '<div class="rec-actions"><button class="mini js-edit">✎ Засах</button><button class="mini del js-del">🗑 Устгах</button></div>'+
+        '</div></div>';
+    });
+    v.innerHTML=html;
+  }
+  document.getElementById('view-list').addEventListener('click', function(e){
+    var rec=e.target.closest('.rec'); if(!rec) return; var id=rec.getAttribute('data-id');
+    if(e.target.closest('.js-toggle')){ rec.classList.toggle('open'); return; }
+    if(e.target.closest('.js-del')){
+      if(confirm('Энэ тэмдэглэлийг устгах уу?')){
+        records=records.filter(function(r){return r.id!==id;}); save(); renderList(); updateCount();
+      }
+    }
+    if(e.target.closest('.js-edit')){
+      var r=records.find(function(x){return x.id===id;}); if(!r) return;
+      records=records.filter(function(x){return x.id!==id;});
+      document.getElementById('fStation').value=r.station; document.getElementById('fSample').value=r.sample||'';
+      document.getElementById('fTime').value=r.time||''; document.getElementById('fLat').value=r.lat;
+      document.getElementById('fLon').value=r.lon; document.getElementById('fType').value=r.type||'';
+      document.getElementById('fLith').value=r.lith||''; document.getElementById('fAlt').value=r.alt||'';
+      document.getElementById('fMin').value=r.min||''; document.getElementById('fStrike').value=r.strike||'';
+      document.getElementById('fDip').value=r.dip||''; document.getElementById('fNote').value=r.note||'';
+      photoData=r.photo||null;
+      var t=document.getElementById('fThumb'); if(photoData){t.src=photoData;t.classList.add('show');} else {t.classList.remove('show');}
+      save(); renderList(); updateCount(); switchTab('new'); toast('Засварлаж байна — дахин хадгална уу');
+    }
+  });
+  function updateCount(){
+    var c=document.getElementById('tabCount'); c.textContent=records.length?('('+records.length+')'):'';
+  }
+
+  // ---------- Газрын зураг ----------
+  function initMap(){
+    if(mapInited) return;
+    var center = records.length ? [records[0].lat, records[0].lon] : [46.86,103.83]; // Монгол төв
+    map = L.map('map').setView(center, records.length?12:5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
+    layerGroup=L.layerGroup().addTo(map);
+    meMarker=L.circleMarker(center,{radius:7,color:'#e89a4a',fillColor:'#e89a4a',fillOpacity:1}).addTo(map);
+    if(current.lat) meMarker.setLatLng([current.lat,current.lon]);
+    mapInited=true;
+  }
+  function drawMarkers(){
+    if(!mapInited) return; layerGroup.clearLayers();
+    records.forEach(function(r){
+      var m=L.marker([r.lat,r.lon]).addTo(layerGroup);
+      m.bindPopup('<b>'+esc(r.station)+'</b><br>'+esc(r.lith||r.type||'')+'<br>'+esc(r.sample||'')+'<br><small>'+r.lat.toFixed(5)+', '+r.lon.toFixed(5)+'</small>');
+    });
+    if(records.length){ try{ map.fitBounds(L.latLngBounds(records.map(function(r){return [r.lat,r.lon];})).pad(0.3)); }catch(e){} }
+  }
+  document.getElementById('btnRecenter').addEventListener('click', function(){
+    if(!current.lat){ getGps(); return; }
+    if(map){ map.setView([current.lat,current.lon],14); meMarker.setLatLng([current.lat,current.lon]); }
+  });
+
+  // ---------- Экспорт ----------
+  function download(name, text, mime){
+    var blob=new Blob([text],{type:mime}); var url=URL.createObjectURL(blob);
+    var a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },500);
+  }
+  function stamp(){ var d=new Date(),p=function(n){return String(n).padStart(2,'0');}; return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate()); }
+  function csvCell(s){ s=(s==null?'':String(s)); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+  function expCSV(){
+    var cols=['Станц','Дээж','Огноо','Өргөрөг','Уртраг','UTM_зона','UTM_E','UTM_N','Нарийвчлал_м','Төрөл','Литологи','Өөрчлөлт','Эрдэсжилт','Суналт','Хэвгий','Тэмдэглэл'];
+    var rows=[cols.join(',')];
+    records.forEach(function(r){
+      var u=toUTM(r.lat,r.lon);
+      rows.push([r.station,r.sample,r.time,r.lat,r.lon,u.zone+u.hemi,u.e,u.n,r.acc?Math.round(r.acc):'',r.type,r.lith,r.alt,r.min,r.strike,r.dip,r.note].map(csvCell).join(','));
+    });
+    download('geo_field_'+stamp()+'.csv','\ufeff'+rows.join('\r\n'),'text/csv');
+  }
+  function expGPX(){
+    var x=['<?xml version="1.0" encoding="UTF-8"?>','<gpx version="1.1" creator="KHEER-GEO" xmlns="http://www.topografix.com/GPX/1/1">'];
+    records.forEach(function(r){
+      var d=[r.type,r.lith,r.alt,r.min,(r.strike||r.dip)?('структур '+(r.strike||'?')+'/'+(r.dip||'?')):'',r.note].filter(Boolean).join('; ');
+      x.push('<wpt lat="'+r.lat+'" lon="'+r.lon+'"><name>'+esc(r.station)+(r.sample?(' '+esc(r.sample)):'')+'</name><desc>'+esc(d)+'</desc></wpt>');
+    });
+    x.push('</gpx>'); download('geo_field_'+stamp()+'.gpx',x.join('\n'),'application/gpx+xml');
+  }
+  function expKML(){
+    var x=['<?xml version="1.0" encoding="UTF-8"?>','<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>KHEER-GEO</name>'];
+    records.forEach(function(r){
+      var d=[r.sample?('Дээж: '+r.sample):'',r.type,r.lith,r.alt,r.min,(r.strike||r.dip)?('Структур: '+(r.strike||'?')+'/'+(r.dip||'?')):'',r.note].filter(Boolean).join(' | ');
+      x.push('<Placemark><name>'+esc(r.station)+'</name><description>'+esc(d)+'</description><Point><coordinates>'+r.lon+','+r.lat+',0</coordinates></Point></Placemark>');
+    });
+    x.push('</Document></kml>'); download('geo_field_'+stamp()+'.kml',x.join('\n'),'application/vnd.google-earth.kml+xml');
+  }
+  document.querySelectorAll('.exp-btn[data-exp]').forEach(function(b){
+    b.addEventListener('click', function(){
+      if(!records.length){ toast('Экспортлох тэмдэглэл алга'); return; }
+      var t=b.getAttribute('data-exp');
+      if(t==='csv') expCSV(); else if(t==='gpx') expGPX(); else expKML();
+      toast('Татаж байна...');
+    });
+  });
+  document.getElementById('btnClear').addEventListener('click', function(){
+    if(!records.length){ toast('Устгах зүйл алга'); return; }
+    if(confirm('БҮХ '+records.length+' тэмдэглэлийг бүрмөсөн устгах уу? Энэ үйлдлийг буцаах боломжгүй.')){
+      records=[]; save(); renderList(); updateCount(); drawMarkers(); toast('Бүх тэмдэглэл устгагдлаа');
+    }
+  });
+
+  // ---------- Tab навигаци ----------
+  function switchTab(name){
+    document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
+    document.getElementById('view-'+name).classList.add('active');
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active', t.getAttribute('data-tab')===name);});
+    if(name==='map'){ initMap(); setTimeout(function(){ map.invalidateSize(); drawMarkers(); },120); }
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('.tab').forEach(function(t){ t.addEventListener('click', function(){ switchTab(t.getAttribute('data-tab')); }); });
+
+  // ---------- Toast ----------
+  var toastTimer;
+  function toast(msg){
+    var el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer=setTimeout(function(){el.classList.remove('show');},2200);
+  }
+
+  document.getElementById('btnGps').addEventListener('click', getGps);
+
+  // ---------- Эхлүүлэх ----------
+  load(); resetForm(); renderList(); updateCount();
+})();
+</script>
+
+<script>
+if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(function(){});});}
+</script>

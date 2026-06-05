@@ -1,0 +1,16 @@
+{
+  "name": "ХЭЭР·ГЕО — Хайгуулын хээрийн тэмдэглэл",
+  "short_name": "ХЭЭР·ГЕО",
+  "description": "Геологи хайгуулын хээрийн тэмдэглэл: GPS, дээж бүртгэл, CSV/GPX/KML экспорт.",
+  "lang": "mn",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#13110d",
+  "theme_color": "#13110d",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
